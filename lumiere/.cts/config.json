@@ -1,0 +1,13 @@
+{
+    "DefaultDevice": "default",
+    "CompilerOutput": "lumiere",
+    "CPPName": "main.cpp",
+    "devices": {
+        "default": {
+            "TargetIP": "veil.local",
+            "User": "user",
+            "SSHPass": "user",
+            "UploadPath": "/home/user/Desktop"
+        }
+    }
+}
