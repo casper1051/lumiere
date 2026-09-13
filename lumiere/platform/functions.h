@@ -15,6 +15,7 @@ inline bool check_port(int port, int max) {
 inline void mav(int port, int goal_velocity) {
     if (check_port(port, 4)) return;
     platform.getDriverCommands().motor[port].velocity_goal.store(goal_velocity, std::memory_order_release);
+    platform.getDriverCommands().motor[port].stop.store(false, std::memory_order_release);
 }
 
 inline void off(int port) {
@@ -31,6 +32,11 @@ inline void cmpc(int port) {
     if (check_port(port, 4)) return;
     platform.getDriverCommands().motor[port].clear_position.store(true, std::memory_order_release);
     while (gmpc(port) != 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+}
+
+inline void sync_cmpc(int port) {
+    if (check_port(port, 4)) return;
+    platform.getDriverCommands().motor[port].clear_position.store(true, std::memory_order_release);
 }
 
 

@@ -63,13 +63,27 @@ void run_hardware_worker() {
         sensor_telem.motor[i].position.store(get_motor_position_counter(i), std::memory_order_release);
     }
 
-    sensor_telem.imu.gyro.x.store(gyro_x(), std::memory_order_release);
-    sensor_telem.imu.gyro.y.store(gyro_y(), std::memory_order_release);
-    sensor_telem.imu.gyro.z.store(gyro_z(), std::memory_order_release);
+    sensor_telem.imu.gyro.x.store(gyro_x() - sensor_telem.imu.gyro.cal_x.load(std::memory_order_acquire), std::memory_order_release);
+    sensor_telem.imu.gyro.raw_x.store(gyro_x(), std::memory_order_release);
 
-    sensor_telem.imu.accel.x.store(accel_x(), std::memory_order_release);
-    sensor_telem.imu.accel.y.store(accel_y(), std::memory_order_release);
-    sensor_telem.imu.accel.z.store(accel_z(), std::memory_order_release);
+    sensor_telem.imu.gyro.y.store(gyro_y() - sensor_telem.imu.gyro.cal_y.load(std::memory_order_acquire), std::memory_order_release);
+    sensor_telem.imu.gyro.raw_y.store(gyro_y(), std::memory_order_release);
+
+    sensor_telem.imu.gyro.z.store(gyro_z() - sensor_telem.imu.gyro.cal_z.load(std::memory_order_acquire), std::memory_order_release);
+    sensor_telem.imu.gyro.raw_z.store(gyro_z(), std::memory_order_release);
+    if (abs(sensor_telem.imu.gyro.z.load(std::memory_order_acquire)) > 10) sensor_telem.imu.gyro.estimated_angle_z.fetch_add(sensor_telem.imu.gyro.z.load(std::memory_order_acquire), std::memory_order_acq_rel);
+
+
+    sensor_telem.imu.accel.x.store(accel_x() - sensor_telem.imu.accel.cal_x.load(std::memory_order_acquire), std::memory_order_release);
+    sensor_telem.imu.accel.raw_x.store(accel_x(), std::memory_order_release);
+
+    sensor_telem.imu.accel.y.store(accel_y() - sensor_telem.imu.accel.cal_y.load(std::memory_order_acquire), std::memory_order_release);
+    sensor_telem.imu.accel.raw_y.store(accel_y(), std::memory_order_release);
+
+    sensor_telem.imu.accel.z.store(accel_z() - sensor_telem.imu.accel.cal_z.load(std::memory_order_acquire), std::memory_order_release);
+    sensor_telem.imu.accel.raw_z.store(accel_z(), std::memory_order_release);
+
+
 
     for (int i = 0; i < 6; ++i) {
         sensor_telem.analog.value[i].store(static_cast<uint16_t>(analog(i)), std::memory_order_release);

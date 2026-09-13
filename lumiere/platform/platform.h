@@ -19,8 +19,8 @@ constexpr size_t CACHE_LINE = 64;
 
 struct alignas(CACHE_LINE) MotorCommand {
     std::atomic<int16_t> velocity_goal{0};
-    std::atomic<bool> clear_position{false};
-    std::atomic<bool> stop{false};
+    std::atomic<bool> clear_position{true};
+    std::atomic<bool> stop{true};
     std::atomic<bool> freeze{false};
 };
 
@@ -52,6 +52,8 @@ struct alignas(CACHE_LINE) GyroTelemetry {
     std::atomic<int32_t> x{0};
     std::atomic<int32_t> y{0};
     std::atomic<int32_t> z{0};
+
+    std::atomic<int32_t> estimated_angle_z{0};
 };
 
 struct alignas(CACHE_LINE) AccelTelemetry {
@@ -103,6 +105,139 @@ struct alignas(CACHE_LINE) Position {
 struct alignas(CACHE_LINE) Pathfind {
     //@TODO add objectives
 };
+
+enum class MovementType {
+    DRIVE_STRAIGHT,
+    TURN_IN_PLACE,
+    ARC_TURN,
+    POLYNOMIAL,
+    NONE
+};
+
+enum class MovementDurationType {
+    DISTANCE,
+    FOREVER,
+    NONE
+};
+
+struct MovementPacket {
+    /*
+    Drive Straight:
+        1=speed
+        2=type
+        3=distance
+        4=forever
+    Turn In Place:
+        1=speed
+        2=type
+        3=distance
+        4=forever
+    Arc Turn:
+        1=unimplemented
+    Polynomial:
+        1=unimplement
+    */
+
+    std::atomic<MovementType> movement_type{MovementType::NONE};
+
+    std::atomic<int> speed{0};
+    std::atomic<MovementDurationType> duration_type{MovementDurationType::NONE};
+    std::atomic<int> distance{0};
+
+    std::atomic<double> progress{0};
+
+    std::atomic<bool> completed{false};
+
+    std::atomic<bool> requires_cleared_encoders{true};
+
+
+
+};
+
+struct alignas(CACHE_LINE) Movement {
+private:
+    std::mutex mtx_;
+    std::unique_ptr<std::vector<std::unique_ptr<MovementPacket>>> packets_;
+
+    alignas(CACHE_LINE) std::atomic<size_t> current_idx_{0};
+
+public:
+    Movement(size_t initial_reserve = 64) {
+        packets_ = std::make_unique<std::vector<std::unique_ptr<MovementPacket>>>();
+        packets_->reserve(initial_reserve);
+    }
+
+    Movement(const Movement&) = delete;
+    Movement& operator=(const Movement&) = delete;
+    Movement(Movement&&) = delete;
+    Movement& operator=(Movement&&) = delete;
+
+    void add_packet(MovementPacket&& packet) {
+        auto heap_packet = std::make_unique<MovementPacket>();
+
+        heap_packet->movement_type.store(packet.movement_type.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        heap_packet->speed.store(packet.speed.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        heap_packet->duration_type.store(packet.duration_type.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        heap_packet->distance.store(packet.distance.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        heap_packet->progress.store(packet.progress.load(std::memory_order_relaxed), std::memory_order_relaxed);
+
+        std::lock_guard<std::mutex> lock(mtx_);
+        packets_->push_back(std::move(heap_packet));
+    }
+
+    void clear() {
+        std::lock_guard<std::mutex> lock(mtx_);
+        packets_->clear();
+    }
+
+
+
+    size_t get_size() {
+        std::lock_guard<std::mutex> lock(mtx_);
+        return packets_->size();
+    }
+
+
+
+    MovementPacket* get_active_packet() {
+        size_t idx = current_idx_.load(std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(mtx_);
+        while (idx < packets_->size()) {
+            if (!(*packets_)[idx]->completed.load(std::memory_order_acquire)) {
+                current_idx_.store(idx, std::memory_order_relaxed);
+                return (*packets_)[idx].get();
+            }
+            idx++;
+        }
+        current_idx_.store(idx, std::memory_order_relaxed);
+        return nullptr;
+    }
+
+    void purge_completed_packets() {
+        std::lock_guard<std::mutex> lock(mtx_);
+
+        auto it = std::remove_if(packets_->begin(), packets_->end(), 
+            [](const std::unique_ptr<MovementPacket>& p) {
+                return p->completed.load(std::memory_order_acquire);
+            });
+
+        if (it != packets_->end()) {
+            packets_->erase(it, packets_->end());
+            current_idx_.store(0, std::memory_order_release);
+        }
+    }
+
+
+    MovementPacket* get_packet_ptr(size_t index) {
+        std::lock_guard<std::mutex> lock(mtx_);
+        if (index < packets_->size()) {
+            return (*packets_)[index].get();
+        }
+        return nullptr;
+    }
+};
+
+
 
 struct alignas(CACHE_LINE) SharedChannel {
     using MilliTime = std::chrono::time_point<std::chrono::steady_clock, std::chrono::milliseconds>;
@@ -200,6 +335,7 @@ private:
     alignas(CACHE_LINE) SensorTelemetry sensor_telemetry_;
     alignas(CACHE_LINE) SharedChannel shared_channel_;
     alignas(CACHE_LINE) Scheduler scheduler_;
+    alignas(CACHE_LINE) Movement movement_;
 
 public:
     Platform() = default;
@@ -237,6 +373,13 @@ public:
     }
     const Scheduler& getScheduler() const {
         return scheduler_;
+    }
+
+    Movement& getMovement() {
+        return movement_;
+    }
+    const Movement& getMovement() const {
+        return movement_;
     }
 };
 

@@ -7,10 +7,23 @@
 #include "../hardware_worker/worker.h"
 #include "../debug/debug.h"
 
+#include "../movement/movement.h"
+
 void register_all() {
     log("Init", "Registering all...");
+
+    platform.getScheduler().register_high(run_movement_worker);
     platform.getScheduler().register_high(run_hardware_worker);
+
+
     platform.getScheduler().register_low(program);
+    platform.getScheduler().register_low([]() {
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            platform.getMovement().purge_completed_packets();
+        }
+    });
+
     log("Init", "Registration completed");
 }
 
